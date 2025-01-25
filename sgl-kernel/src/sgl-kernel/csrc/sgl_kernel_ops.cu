@@ -1,4 +1,5 @@
 #include <vector>
+#include <torch/extension.h>
 
 #include "utils.h"
 
@@ -85,6 +86,10 @@ void top_p_sampling_from_probs(at::Tensor probs, at::Tensor uniform_samples, at:
                                std::optional<at::Tensor> maybe_top_p_arr, double top_p_val, bool deterministic,
                                int64_t cuda_stream);
 
+void invokeBiasResidualRMSNorm(at::Tensor residual, at::Tensor hidden_states,
+                               const at::Tensor& weights, std::optional<at::Tensor>& bias,
+                               float eps);
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   // trt_reduce
   m.def("init_custom_ar", &init_custom_ar, "init custom allreduce meta (CUDA)");
@@ -128,4 +133,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("top_k_top_p_sampling_from_probs", &top_k_top_p_sampling_from_probs, "Top K Top P Sampling From Probs (CUDA)");
   // top p sampling from probs
   m.def("top_p_sampling_from_probs", &top_p_sampling_from_probs, "Top P Sampling From Probs (CUDA)");
+  // bias_residual_rms_norm
+  m.def("bias_residual_rms_norm", &invokeBiasResidualRMSNorm, "Fused bias add and RMS norm kernel");
 }

@@ -36,6 +36,7 @@ from sgl_kernel.ops._kernels import top_p_renorm_probs as _top_p_renorm_probs
 from sgl_kernel.ops._kernels import (
     top_p_sampling_from_probs as _top_p_sampling_from_probs,
 )
+from sgl_kernel.ops._kernels import bias_residual_rms_norm as _bias_residual_rms_norm
 from sgl_kernel.ops.utils import (
     _get_cache_buf,
     _get_cuda_stream,
@@ -461,3 +462,10 @@ def min_p_sampling_from_probs(
     return _min_p_sampling_from_probs_internal(
         probs, uniform_samples, *_to_tensor_scalar_tuple(min_p), deterministic
     )
+
+def bias_residual_rms_norm(residual: torch.Tensor,
+                           hidden_states: torch.Tensor,
+                           weights: torch.Tensor,
+                           bias: Optional[torch.Tensor],
+                           eps: float):
+    return _bias_residual_rms_norm(residual, hidden_states, weights, bias, eps)

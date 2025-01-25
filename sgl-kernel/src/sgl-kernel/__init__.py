@@ -21,6 +21,7 @@ from sgl_kernel.ops import (
     top_k_renorm_prob,
     top_k_top_p_sampling_from_probs,
     top_p_renorm_prob,
+    bias_residual_rms_norm
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "top_k_renorm_prob",
     "top_k_top_p_sampling_from_probs",
     "top_p_renorm_prob",
+    "bias_residual_rms_norm"
 ]

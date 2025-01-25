@@ -49,6 +49,30 @@ def fused_add_rms_norm(x, residual, weight, eps):
     return x, residual
 
 
+def bias_residual_rms_norm_ref(hidden_states, residual, weight, bias, eps):
+    orig_dtype = hidden_states.dtype
+    hidden_states = hidden_states.to(torch.float32)
+    residual = residual.to(torch.float32)
+    
+    # 1. Add residual and bias
+    residual = residual + hidden_states
+    if bias is not None:
+        residual = residual + bias
+    
+    # 2. Store residual to hidden_states
+    hidden_states = residual.clone()
+    
+    # 3. RMS Norm
+    variance = residual.pow(2).mean(dim=-1, keepdim=True)
+    residual = residual * torch.rsqrt(variance + eps)
+    
+    # 4. Apply weight and store to hidden_states
+    hidden_states = (residual * weight.float()).to(orig_dtype)
+    residual = residual.to(orig_dtype)
+    
+    return hidden_states, residual
+
+
 @pytest.mark.parametrize("batch_size", [1, 19, 99, 989])
 @pytest.mark.parametrize("hidden_size", [111, 500, 1024, 3072, 3584, 4096, 8192, 16384])
 @pytest.mark.parametrize("dtype", [torch.float16])
@@ -127,6 +151,35 @@ def test_gemma_fused_add_rmsnorm(batch_size, hidden_size, dtype):
 
     torch.testing.assert_close(x_fused, x_native, rtol=1e-3, atol=1e-3)
     torch.testing.assert_close(residual_fused, residual_native, rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.parametrize("batch_size", [1, 19, 99, 989])
+@pytest.mark.parametrize("hidden_size", [128, 256, 1024, 2048, 4096, 8192, 16384])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("has_bias", [False])
+def test_bias_residual_rmsnorm(batch_size, hidden_size, dtype, has_bias):
+    eps = 1e-6
+    
+    hidden_states = torch.randn(batch_size, hidden_size, dtype=dtype, device="cuda")
+    residual = torch.randn_like(hidden_states)
+    weight = torch.randn(hidden_size, dtype=dtype, device="cuda")
+    bias = torch.randn(hidden_size, dtype=dtype, device="cuda") if has_bias else None
+    
+    # Reference implementation
+    hidden_states_ref = hidden_states.clone()
+    residual_ref = residual.clone()
+    hidden_states_native, residual_native = bias_residual_rms_norm_ref(
+        hidden_states_ref, residual_ref, weight, bias, eps
+    )
+    
+    # CUDA implementation
+    hidden_states_cuda = hidden_states.clone()
+    residual_cuda = residual.clone()
+    sgl_kernel.bias_residual_rms_norm(residual_cuda, hidden_states_cuda, weight, bias, eps)
+    
+    # Compare results
+    torch.testing.assert_close(hidden_states_cuda, hidden_states_native, rtol=1e-2, atol=1e-2)
+    torch.testing.assert_close(residual_cuda, residual_native, rtol=1e-2, atol=1e-2)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,13 @@
 
 #include <turbomind/kernels/core/array_ops.h>
 #include <turbomind/kernels/core/common.h>
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <pytorch_extension_utils.h>
+#include <THC/THCAtomics.cuh>
+
+#include "utils.h"
 
 #include <cub/block/block_reduce.cuh>
 
@@ -80,13 +87,25 @@ __global__ void BiasResidualRMSNormKernel(T* __restrict__ residual, T* __restric
   }
 }
 
-template <class T>
-void invokeBiasResidualRMSNorm(T* residual, T* hidden_states, const T* weights, const T* bias, int dims, int num,
-                               float eps, cudaStream_t st) {
-  constexpr int vec_size = 16 / sizeof(T);
-  constexpr int threads = 512;
-  const int blocks = num;
+void invokeBiasResidualRMSNorm(torch::Tensor residual, torch::Tensor hidden_states, 
+                               const torch::Tensor& weights, std::optional<torch::Tensor>& bias,
+                               float eps) {
+  const auto dims = residual.size(-1);
+  const auto num = residual.numel() / dims;
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-  BiasResidualRMSNormKernel<T, float, threads, vec_size>
-      <<<blocks, threads, 0, st>>>(residual, hidden_states, weights, bias, dims, num, eps, 1.f / dims);
+  DISPATCH_PYTORCH_DTYPE_TO_CTYPE_FP16(residual.scalar_type(), scalar_t, [&] {
+    constexpr int vec_size = 16 / sizeof(scalar_t);
+    constexpr int threads = 512;
+    const int blocks = num;
+
+    BiasResidualRMSNormKernel<scalar_t, float, threads, vec_size>
+        <<<blocks, threads, 0, stream>>>(
+            static_cast<scalar_t*>(residual.data_ptr()),
+            static_cast<scalar_t*>(hidden_states.data_ptr()),
+            static_cast<scalar_t*>(weights.data_ptr()),
+            bias.has_value() ? static_cast<scalar_t*>(bias.value().data_ptr()) : nullptr,
+            dims, num, eps, 1.f / dims);
+    return true;
+  });
 }
