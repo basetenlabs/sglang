@@ -128,9 +128,9 @@ class DeepseekV3ForCausalLMEagle(DeepseekV3ForCausalLM):
             elif "embed_tokens" in name:
                 name = "model.embed_tokens." + name.split("embed_tokens.")[1]
                 super().load_weights([(name, loaded_weight)])
-            elif "model.norm." in name:
-                name = "model.norm." + name.split("model.norm.")[1]
-                super().load_weights([(name, loaded_weight)])
+            # elif "model.norm." in name:
+            #     name = "model.norm." + name.split("model.norm.")[1]
+            #     super().load_weights([(name, loaded_weight)])
             elif any(n in name for n in decoder_names):
                 name_split = name.split(".")
                 name_split[2] = layer_new_num
