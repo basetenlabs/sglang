@@ -99,6 +99,7 @@ class DeepseekV3ForCausalLMEagle(DeepseekV3ForCausalLM):
         nn.Module.__init__(self)
         self.config = config
         self.quant_config = quant_config
+        self.config.first_k_dense_replace = 0
         self.model = DeepseekV3Model(config, quant_config=quant_config)
         # TODO: verify right code path here.
         if self.config.tie_word_embeddings:
@@ -125,7 +126,7 @@ class DeepseekV3ForCausalLMEagle(DeepseekV3ForCausalLM):
                 name = "lm_head." + name.split("lm_head.")[1]
                 super().load_weights([(name, loaded_weight)])
             elif "embed_tokens" in name:
-                name = "model.embed_tokens." + name.split("model.embed_tokens.")[1]
+                name = "model.embed_tokens." + name.split("embed_tokens.")[1]
                 super().load_weights([(name, loaded_weight)])
             elif "model.norm." in name:
                 name = "model.norm." + name.split("model.norm.")[1]
@@ -134,6 +135,8 @@ class DeepseekV3ForCausalLMEagle(DeepseekV3ForCausalLM):
                 name_split = name.split(".")
                 name_split[2] = layer_new_num
                 name = ".".join(name_split)
+                # print(f"name: {name}")
+                # print(dict(self.named_parameters()).keys())
                 super().load_weights([(name, loaded_weight)])
 
 

@@ -877,6 +877,9 @@ class DeepseekV2ForCausalLM(nn.Module):
             num_experts=self.config.n_routed_experts,
         )
 
+        # print(f"num_experts: {self.config.n_routed_experts}")
+        # print(f"expert_params_mapping: {expert_params_mapping}")
+
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
             # TODO(HandH1998): Modify it when nextn is supported.
