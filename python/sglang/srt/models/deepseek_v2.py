@@ -989,16 +989,21 @@ class DeepseekV2ForCausalLM(nn.Module):
                     if is_hip_:
                         self_attn.w_scale *= 2.0
 
-    # def get_embed_and_head(self): # TODO: might be used to un-duplicate the weights
-    #     return self.model.embed_tokens.weight, self.lm_head.weight
+    def get_embed_and_head(self):
+        return self.model.embed_tokens.weight, self.lm_head.weight
 
-    # def set_embed_and_head(self, embed, head):
-    #     del self.model.embed_tokens.weight
-    #     del self.lm_head.weight
-    #     self.model.embed_tokens.weight = embed
-    #     self.lm_head.weight = head
-    #     torch.cuda.empty_cache()
-    #     torch.cuda.synchronize()
+    def set_embed_and_head(self, embed, head):
+        del self.model.embed_tokens.weight
+        del self.lm_head.weight
+        self.model.embed_tokens.weight = embed
+        self.lm_head.weight = head
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+    def load_kv_cache_scales(self, quantization_param_path: str) -> None:
+        self.model.load_kv_cache_scales(quantization_param_path)
+
+
 class DeepseekV3ForCausalLM(DeepseekV2ForCausalLM):
     pass
 
