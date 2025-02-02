@@ -81,6 +81,9 @@ class DeepseekV3Model(nn.Module):
         residual = None
         for i in range(len(self.layers)):
             layer = self.layers[i]
+            # print(f"positions shape: {positions.shape}")
+            # print(f"hidden_states shape: {hidden_states.shape}")
+            # print(f"forward_batch: {forward_batch}")
             hidden_states, residual = layer(
                 positions,
                 hidden_states,

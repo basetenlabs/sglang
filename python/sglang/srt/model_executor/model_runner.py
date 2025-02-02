@@ -623,6 +623,9 @@ class ModelRunner:
             device=self.device,
             enable_memory_saver=self.server_args.enable_memory_saver,
         )
+        # import traceback;traceback.print_stack()
+        # print("attention_arch", self.model_config.attention_arch)
+        # print("disable_mla", self.server_args.disable_mla)
         if (
             self.model_config.attention_arch == AttentionArch.MLA
             and not self.server_args.disable_mla
