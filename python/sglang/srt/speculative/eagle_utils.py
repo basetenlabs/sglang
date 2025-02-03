@@ -186,7 +186,7 @@ class EAGLEDraftInput(SpecInfo):
         self.token_list: List[torch.Tensor] = []
         self.origin_score_list: List[torch.Tensor] = []  # used for sampling
         self.parents_list: List[torch.Tensor] = []
-        self.cache_list: List[torch.Tenor] = []
+        self.cache_list: List[torch.Tensor] = []
         self.iter = 0
 
         # shape: (b, hidden_size)
