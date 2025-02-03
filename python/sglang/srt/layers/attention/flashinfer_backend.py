@@ -123,10 +123,10 @@ class FlashInferAttnBackend(AttentionBackend):
         self.decode_wrappers = []
         for _ in range(self.num_wrappers):
             self.prefill_wrappers_paged.append(
-                BatchPrefillWithPagedKVCacheWrapper(self.workspace_buffer, "NHD")
+                BatchPrefillWithPagedKVCacheWrapper(self.workspace_buffer, "NHD", backend="fa2")
             )
             self.prefill_wrappers_verify.append(
-                BatchPrefillWithPagedKVCacheWrapper(self.workspace_buffer, "NHD")
+                BatchPrefillWithPagedKVCacheWrapper(self.workspace_buffer, "NHD", backend="fa2")
             )
             self.decode_wrappers.append(
                 BatchDecodeWithPagedKVCacheWrapper(
@@ -361,9 +361,7 @@ class FlashInferAttnBackend(AttentionBackend):
                     forward_batch.token_to_kv_pool.set_kv_buffer(
                         layer, cache_loc, k, v, layer.k_scale, layer.v_scale
                     )
-            print("A") 
-            print(q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim)) 
-            print("B")
+
             o = prefill_wrapper_paged.forward(
                 q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
                 forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
