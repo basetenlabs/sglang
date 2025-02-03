@@ -361,7 +361,9 @@ class FlashInferAttnBackend(AttentionBackend):
                     forward_batch.token_to_kv_pool.set_kv_buffer(
                         layer, cache_loc, k, v, layer.k_scale, layer.v_scale
                     )
-
+            print("A") 
+            print(q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim)) 
+            print("B")
             o = prefill_wrapper_paged.forward(
                 q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
                 forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -610,13 +612,13 @@ class FlashInferIndicesUpdaterDecode:
 
         wrapper.end_forward()
         wrapper.begin_forward(
-            kv_indptr,
-            kv_indices,
-            self.kv_last_page_len[:bs],
-            self.num_qo_heads,
-            self.num_kv_heads,
-            self.head_dim,
-            1,
+            indptr=kv_indptr,
+            indices=kv_indices,
+            last_page_len=self.kv_last_page_len[:bs],
+            num_qo_heads=self.num_qo_heads,
+            num_kv_heads=self.num_kv_heads,
+            head_dim=self.head_dim,
+            page_size=1,
             data_type=self.data_type,
             q_data_type=self.q_data_type,
         )
@@ -831,7 +833,7 @@ class FlashInferIndicesUpdaterPrefill:
             wrapper_ragged.end_forward()
             wrapper_ragged.begin_forward(
                 qo_indptr,
-                qo_indptr,
+                qo_indptr, # TODO: why is this the same for qo and kv
                 self.num_qo_heads,
                 self.num_kv_heads,
                 self.head_dim,
@@ -841,14 +843,15 @@ class FlashInferIndicesUpdaterPrefill:
         # cached part
         wrapper_paged.end_forward()
         wrapper_paged.begin_forward(
-            qo_indptr,
-            kv_indptr,
-            kv_indices,
-            self.kv_last_page_len[:bs],
-            self.num_qo_heads,
-            self.num_kv_heads,
-            self.head_dim,
-            1,
+            qo_indptr=qo_indptr,
+            paged_kv_indptr=kv_indptr,
+            paged_kv_indices=kv_indices,
+            paged_kv_last_page_len=self.kv_last_page_len[:bs],
+            num_qo_heads=self.num_qo_heads,
+            num_kv_heads=self.num_kv_heads,
+            head_dim_qk=self.head_dim,
+            page_size=1,
+            head_dim_vo=128,  # TODO: get from somehwere else
             q_data_type=self.q_data_type,
             custom_mask=custom_mask,
         )
