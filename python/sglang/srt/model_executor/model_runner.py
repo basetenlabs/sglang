@@ -109,8 +109,9 @@ class ModelRunner:
         ):
             # TODO: add MLA optimization on CPU
             if self.server_args.device != "cpu":
-                logger.info("MLA optimization is turned on. Use triton backend.")
-                self.server_args.attention_backend = "triton"
+                pass
+                # logger.info("MLA optimization is turned on. Use triton backend.")
+                # self.server_args.attention_backend = "triton"
 
         if self.server_args.enable_double_sparsity:
             logger.info(

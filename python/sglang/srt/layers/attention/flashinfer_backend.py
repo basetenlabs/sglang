@@ -397,7 +397,7 @@ class FlashInferAttnBackend(AttentionBackend):
 
             if save_kv_cache:
                 forward_batch.token_to_kv_pool.set_kv_buffer(
-                    layer, cache_loc, k, v, layer.k_scale, layer.v_scale
+                    layer, cache_loc, k, v,
                 )
 
         return o.view(-1, layer.tp_q_head_num * layer.head_dim)
@@ -424,7 +424,7 @@ class FlashInferAttnBackend(AttentionBackend):
             assert v is not None
             if save_kv_cache:
                 forward_batch.token_to_kv_pool.set_kv_buffer(
-                    layer, cache_loc, k, v, layer.k_scale, layer.v_scale
+                    layer, cache_loc, k, v,
                 )
 
         o = decode_wrapper.forward(
