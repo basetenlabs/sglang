@@ -218,12 +218,14 @@ class FlashInferAttnBackend(AttentionBackend):
             prefix_lens = forward_batch.extend_prefix_lens
 
             # Some heuristics to check whether to use ragged forward
-            if forward_batch.extend_num_tokens >= 4096 and self.num_wrappers == 1:
-                use_ragged = True
-                extend_no_prefix = not any(forward_batch.extend_prefix_lens_cpu)
-            else:
-                use_ragged = False
-                extend_no_prefix = False
+            use_ragged = True
+            extend_no_prefix = not any(forward_batch.extend_prefix_lens_cpu)
+            # if forward_batch.extend_num_tokens >= 4096 and self.num_wrappers == 1:
+            #     use_ragged = True
+            #     extend_no_prefix = not any(forward_batch.extend_prefix_lens_cpu)
+            # else:
+            #     use_ragged = False
+            #     extend_no_prefix = False
 
             self.indices_updater_prefill.update(
                 forward_batch.req_pool_indices,
@@ -409,9 +411,9 @@ class FlashInferAttnBackend(AttentionBackend):
             )
         else:
             o1, s1 = self.prefill_wrapper_ragged.forward_return_lse(
-                q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
-                k.contiguous().view(-1, layer.tp_k_head_num, layer.head_dim),
-                v.contiguous().view(-1, layer.tp_v_head_num, layer.head_dim),
+                q.contiguous().view(-1, layer.tp_q_head_num, 192),
+                k.contiguous().view(-1, layer.tp_k_head_num, 192),
+                v.contiguous().view(-1, layer.tp_v_head_num, 128),
                 causal=True,
                 sm_scale=layer.scaling,
                 logits_soft_cap=logits_soft_cap,
@@ -435,7 +437,7 @@ class FlashInferAttnBackend(AttentionBackend):
                     layer, cache_loc, k, v,
                 )
 
-        return o.view(-1, layer.tp_q_head_num * layer.head_dim)
+        return o.view(-1, layer.tp_q_head_num * layer.v_head_dim)
 
     def forward_decode(
         self,
@@ -859,14 +861,16 @@ class FlashInferIndicesUpdaterPrefill:
             )
 
         # extend part
+        use_ragged = True
         if use_ragged:
             wrapper_ragged.end_forward()
             wrapper_ragged.begin_forward(
-                qo_indptr,
-                qo_indptr, # TODO: why is this the same for qo and kv
-                self.num_qo_heads,
-                self.num_kv_heads,
-                self.head_dim,
+                qo_indptr=qo_indptr,
+                kv_indptr=kv_indptr,
+                num_qo_heads=self.num_qo_heads,
+                num_kv_heads=self.num_kv_heads,
+                head_dim_qk=192,
+                head_dim_vo=128,
                 q_data_type=self.q_data_type,
             )
 
@@ -879,9 +883,9 @@ class FlashInferIndicesUpdaterPrefill:
             paged_kv_last_page_len=self.kv_last_page_len[:bs],
             num_qo_heads=self.num_qo_heads,
             num_kv_heads=self.num_kv_heads,
-            head_dim_qk=self.head_dim,
+            head_dim_qk=192,
             page_size=1,
-            head_dim_vo=128,  # TODO: get from somehwere else
+            head_dim_vo=128,
             q_data_type=self.q_data_type,
             custom_mask=custom_mask,
         )
