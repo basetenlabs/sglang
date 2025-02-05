@@ -7,6 +7,7 @@ FlashInfer is faster and Triton is easier to customize.
 Each backend supports two operators: extend (i.e. prefill with cached prefix) and decode.
 """
 
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -30,13 +31,17 @@ if TYPE_CHECKING:
 
 if is_flashinfer_available():
     from flashinfer import (
-        BatchDecodeWithPagedKVCacheWrapper,
+        BatchDecodeMlaWithPagedKVCacheWrapper,
         BatchPrefillWithPagedKVCacheWrapper,
         BatchPrefillWithRaggedKVCacheWrapper,
     )
     from flashinfer.cascade import merge_state
     from flashinfer.decode import PosEncodingMode
 
+
+V_SIZE = 512
+KPE_SIZE = 64
+KALL_SIZE = V_SIZE + KPE_SIZE
 
 class WrapperDispatch(Enum):
     SLIDING_WINDOW = auto()
@@ -45,7 +50,7 @@ class WrapperDispatch(Enum):
 
 @dataclass
 class DecodeMetadata:
-    decode_wrappers: List[BatchDecodeWithPagedKVCacheWrapper]
+    decode_wrappers: List[BatchDecodeMlaWithPagedKVCacheWrapper]
 
 
 @dataclass
@@ -156,10 +161,8 @@ class FlashInferAttnBackend(AttentionBackend):
                     BatchPrefillWithPagedKVCacheWrapper(self.workspace_buffer, "NHD")
                 )
             self.decode_wrappers.append(
-                BatchDecodeWithPagedKVCacheWrapper(
+                BatchDecodeMlaWithPagedKVCacheWrapper(
                     self.workspace_buffer,
-                    "NHD",
-                    use_tensor_cores=self.decode_use_tensor_cores,
                 )
             )
 
@@ -280,11 +283,9 @@ class FlashInferAttnBackend(AttentionBackend):
             decode_wrappers = []
             for i in range(self.num_wrappers):
                 decode_wrappers.append(
-                    BatchDecodeWithPagedKVCacheWrapper(
+                    BatchDecodeMlaWithPagedKVCacheWrapper(
                         self.workspace_buffer,
-                        "NHD",
                         use_cuda_graph=True,
-                        use_tensor_cores=self.decode_use_tensor_cores,
                         paged_kv_indptr_buffer=self.kv_indptr[i][: num_tokens + 1],
                         paged_kv_indices_buffer=self.cuda_graph_kv_indices[i],
                         paged_kv_last_page_len_buffer=self.kv_last_page_len[
@@ -422,6 +423,7 @@ class FlashInferAttnBackend(AttentionBackend):
             if self.forward_metadata.extend_no_prefix:
                 o = o1
             else:
+                print('type prefill_wrapper_paged', type(prefill_wrapper_paged))
                 o2, s2 = prefill_wrapper_paged.forward_return_lse(
                     q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
                     forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -429,7 +431,10 @@ class FlashInferAttnBackend(AttentionBackend):
                     sm_scale=layer.scaling,
                     logits_soft_cap=layer.logit_cap,
                 )
-
+                print("o1.shape", o1.shape)
+                print("o2.shape", o2.shape)
+                print("s1.shape", s1.shape)
+                print("s2.shape", s2.shape)
                 o, _ = merge_state(o1, s1, o2, s2)
 
             if save_kv_cache:
@@ -437,6 +442,9 @@ class FlashInferAttnBackend(AttentionBackend):
                     layer, cache_loc, k, v,
                 )
 
+        print("layer.head_dim", layer.head_dim)
+        print("layer.qk_head_dim", layer.qk_head_dim)
+        print("layer.v_head_dim", layer.v_head_dim)
         return o.view(-1, layer.tp_q_head_num * layer.v_head_dim)
 
     def forward_decode(
@@ -464,16 +472,22 @@ class FlashInferAttnBackend(AttentionBackend):
                     layer, cache_loc, k, v,
                 )
 
-        o = decode_wrapper.forward(
-            q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
-            forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
-            sm_scale=layer.scaling,
-            logits_soft_cap=layer.logit_cap,
-            k_scale=layer.k_scale,
-            v_scale=layer.v_scale,
+        # todo pankaj, calc q_nope, q_pe, paged_ckv_cache, paged_kpe_cache
+        reshaped_q = q.contiguous().view(-1, 1, KALL_SIZE)
+        k_buffer = forward_batch.token_to_kv_pool.get_key_buffer(layer.layer_id)
+        reshaped_k = k_buffer.contiguous().view(-1, 1, KALL_SIZE)
+        o = decode_wrapper.run(
+            reshaped_q[:, :, :V_SIZE],
+            reshaped_q[:, :, V_SIZE:],
+            reshaped_k[:, :, :V_SIZE],
+            reshaped_k[:, :, V_SIZE:],
+            k_scale=layer.k_scale, # todo
+            v_scale=layer.v_scale, # todo
         )
 
-        return o.view(-1, layer.tp_q_head_num * layer.head_dim)
+        # print("layer.tp_q_head_num", layer.tp_q_head_num)
+        # print("layer.head_dim", layer.head_dim)
+        return o.view(-1, layer.tp_q_head_num * layer.v_head_dim)
 
     def _get_wrapper_idx(self, layer: RadixAttention):
         if self.num_wrappers == 1:
@@ -521,7 +535,7 @@ class FlashInferIndicesUpdaterDecode:
         req_pool_indices: torch.Tensor,
         seq_lens: torch.Tensor,
         seq_lens_sum: int,
-        decode_wrappers: List[BatchDecodeWithPagedKVCacheWrapper],
+        decode_wrappers: List[BatchDecodeMlaWithPagedKVCacheWrapper],
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
     ):
@@ -533,7 +547,7 @@ class FlashInferIndicesUpdaterDecode:
         req_pool_indices: torch.Tensor,
         seq_lens: torch.Tensor,
         seq_lens_sum: int,
-        decode_wrappers: List[BatchDecodeWithPagedKVCacheWrapper],
+        decode_wrappers: List[BatchDecodeMlaWithPagedKVCacheWrapper],
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
     ):
@@ -553,7 +567,7 @@ class FlashInferIndicesUpdaterDecode:
         req_pool_indices: torch.Tensor,
         seq_lens: torch.Tensor,
         seq_lens_sum: int,
-        decode_wrappers: List[BatchDecodeWithPagedKVCacheWrapper],
+        decode_wrappers: List[BatchDecodeMlaWithPagedKVCacheWrapper],
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
     ):
@@ -587,7 +601,7 @@ class FlashInferIndicesUpdaterDecode:
         req_pool_indices: torch.Tensor,
         seq_lens: torch.Tensor,
         seq_lens_sum: int,
-        decode_wrappers: List[BatchDecodeWithPagedKVCacheWrapper],
+        decode_wrappers: List[BatchDecodeMlaWithPagedKVCacheWrapper],
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInfo],
     ):
@@ -614,7 +628,7 @@ class FlashInferIndicesUpdaterDecode:
 
     def call_begin_forward(
         self,
-        wrapper: BatchDecodeWithPagedKVCacheWrapper,
+        wrapper: BatchDecodeMlaWithPagedKVCacheWrapper,
         req_pool_indices: torch.Tensor,
         paged_kernel_lens: torch.Tensor,
         paged_kernel_lens_sum: int,
@@ -642,15 +656,17 @@ class FlashInferIndicesUpdaterDecode:
             kv_indptr, kv_indices = spec_info.kv_indptr, spec_info.kv_indices
             bs = kv_indptr.shape[0] - 1
 
-        wrapper.end_forward()
-        wrapper.begin_forward(
+        # wrapper.end_forward()
+        wrapper.plan(
             indptr=kv_indptr,
             indices=kv_indices,
             last_page_len=self.kv_last_page_len[:bs],
-            num_qo_heads=self.num_qo_heads,
-            num_kv_heads=self.num_kv_heads,
-            head_dim=self.head_dim,
+            num_qo_heads=1,
+            head_dim_compressed_kv=V_SIZE, # todo
             page_size=1,
+            # The scale of softmax, should be ``1 / sqrt(qk_nope_head_dim + qk_rope_head_dim)``
+            logits_soft_cap=0.0, # todo
+            sm_scale=1.0/math.sqrt(KALL_SIZE),  # todo
             data_type=self.data_type,
             q_data_type=self.q_data_type,
         )
@@ -1120,7 +1136,7 @@ def fast_decode_plan(
     rope_scale: Optional[float] = None,
     rope_theta: Optional[float] = None,
 ) -> None:
-    """A faster version of BatchDecodeWithPagedKVCacheWrapper::plan used for FlashInferMultiStepDraftBackend."""
+    """A faster version of BatchDecodeMlaWithPagedKVCacheWrapper::plan used for FlashInferMultiStepDraftBackend."""
     batch_size = len(last_page_len)
     if logits_soft_cap is None:
         logits_soft_cap = 0.0
