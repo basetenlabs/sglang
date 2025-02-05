@@ -423,7 +423,6 @@ class FlashInferAttnBackend(AttentionBackend):
             if self.forward_metadata.extend_no_prefix:
                 o = o1
             else:
-                print('type prefill_wrapper_paged', type(prefill_wrapper_paged))
                 o2, s2 = prefill_wrapper_paged.forward_return_lse(
                     q.contiguous().view(-1, layer.tp_q_head_num, layer.head_dim),
                     forward_batch.token_to_kv_pool.get_kv_buffer(layer.layer_id),
@@ -431,10 +430,6 @@ class FlashInferAttnBackend(AttentionBackend):
                     sm_scale=layer.scaling,
                     logits_soft_cap=layer.logit_cap,
                 )
-                print("o1.shape", o1.shape)
-                print("o2.shape", o2.shape)
-                print("s1.shape", s1.shape)
-                print("s2.shape", s2.shape)
                 o, _ = merge_state(o1, s1, o2, s2)
 
             if save_kv_cache:
@@ -442,9 +437,9 @@ class FlashInferAttnBackend(AttentionBackend):
                     layer, cache_loc, k, v,
                 )
 
-        print("layer.head_dim", layer.head_dim)
-        print("layer.qk_head_dim", layer.qk_head_dim)
-        print("layer.v_head_dim", layer.v_head_dim)
+        # print("layer.head_dim", layer.head_dim)
+        # print("layer.qk_head_dim", layer.qk_head_dim)
+        # print("layer.v_head_dim", layer.v_head_dim)
         return o.view(-1, layer.tp_q_head_num * layer.v_head_dim)
 
     def forward_decode(
